@@ -11,20 +11,16 @@
             box-sizing: border-box;
             user-select: none;
         }
-
         body {
             background: #000;
             overflow: hidden;
             font-family: 'Courier New', monospace;
         }
-
         canvas {
             display: block;
             width: 100%;
             height: 100%;
         }
-
-        /* HUD Panels */
         .hud {
             position: absolute;
             top: 20px;
@@ -36,7 +32,6 @@
             pointer-events: none;
             z-index: 10;
         }
-
         .panel {
             background: rgba(0, 0, 0, 0.7);
             backdrop-filter: blur(12px);
@@ -48,35 +43,29 @@
             pointer-events: auto;
             margin: 5px;
         }
-
         .panel h4 {
             color: #ffaa66;
             margin-bottom: 8px;
             font-size: 12px;
             letter-spacing: 1px;
         }
-
         .player-stats, .plt-stats {
             display: flex;
             gap: 12px;
             flex-wrap: wrap;
         }
-
         .stat {
             flex: 1;
         }
-
         .stat-label {
             font-size: 10px;
             color: #aaa;
         }
-
         .stat-value {
             font-size: 16px;
             font-weight: bold;
             color: #ffaa66;
         }
-
         .resource-bar {
             height: 6px;
             background: #2a2a3a;
@@ -89,8 +78,6 @@
             width: 0%;
             background: linear-gradient(90deg, #ffaa66, #ff8844);
         }
-
-        /* Soul Forge Panel */
         .forge-panel {
             position: absolute;
             bottom: 20px;
@@ -103,13 +90,11 @@
             padding: 16px;
             pointer-events: auto;
         }
-
         .forge-panel h4 {
             color: #ffaa66;
             margin-bottom: 12px;
             text-align: center;
         }
-
         .plt-sliders {
             display: flex;
             gap: 8px;
@@ -156,8 +141,6 @@
             color: #ffaa66;
             border: 1px solid #ffaa66;
         }
-
-        /* Controls help */
         .controls {
             position: absolute;
             bottom: 20px;
@@ -170,8 +153,6 @@
             pointer-events: none;
             color: #aaa;
         }
-
-        /* Quality menu */
         .quality-menu {
             position: absolute;
             top: 20px;
@@ -192,8 +173,6 @@
             padding: 4px 8px;
             margin-left: 6px;
         }
-
-        /* Tooltip (simple) */
         [data-tooltip] {
             position: relative;
             cursor: help;
@@ -308,7 +287,7 @@
 </div>
 
 <div class="controls">
-    🎮 WASD move | SPACE jump | SHIFT sprint | MOUSE look | LMB break | RMB place | 1-9 select block
+    🎮 WASD move | SPACE jump | SHIFT sprint | MOUSE look | LMB break | RMB place | 1-5 select block
 </div>
 
 <div class="quality-menu">
@@ -337,14 +316,14 @@
     import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
     // ============================================================
-    // SOULVERSE VOXEL – POLISHED VERSION
+    // SOULVERSE VOXEL – FULL BLOCK EDITING + PLT INTEGRATION
     // ============================================================
 
     // --- Constants ---
-    const WORLD_SIZE = 32;          // chunks per side
-    const CHUNK_SIZE = 16;          // blocks per chunk dimension
+    const WORLD_SIZE = 32;
+    const CHUNK_SIZE = 16;
     const BLOCK_SIZE = 1;
-    const RENDER_DISTANCE = 4;      // chunks radius
+    const RENDER_DISTANCE = 4;
 
     // --- Block types ---
     const BLOCK_TYPES = {
@@ -364,6 +343,18 @@
         [BLOCK_TYPES.LOVE_PINK]: 0xff88aa,
         [BLOCK_TYPES.TAX_BLUE]: 0x88aaff
     };
+    const BLOCK_NAMES = {
+        [BLOCK_TYPES.AIR]: "Air",
+        [BLOCK_TYPES.DIRT]: "Dirt",
+        [BLOCK_TYPES.GRASS]: "Grass",
+        [BLOCK_TYPES.STONE]: "Stone",
+        [BLOCK_TYPES.PROFIT_GOLD]: "Profit Gold",
+        [BLOCK_TYPES.LOVE_PINK]: "Love Pink",
+        [BLOCK_TYPES.TAX_BLUE]: "Tax Blue"
+    };
+
+    // --- Chunk data storage ---
+    let chunkData = new Map();
 
     // --- Game state ---
     let scene, camera, renderer, composer, controls;
@@ -378,17 +369,32 @@
 
     // PLT resources
     let plt = { profit: 100, love: 100, tax: 100, realm: 100 };
-    let souls = [];  // will sync with Soulverse later
-
-    // Quality settings
+    let souls = [];
     let quality = 'medium';
-    let particleSystem = null;
     let postEnabled = true;
 
-    // --- Helper functions ---
-    function hashChunk(x, z) { return `${x},${z}`; }
+    // Helper: get block in chunk
+    function getBlock(cx, cz, x, y, z) {
+        const key = `${cx},${cz}`;
+        let data = chunkData.get(key);
+        if (!data) return BLOCK_TYPES.AIR;
+        return data[y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x];
+    }
 
-    function generateChunk(cx, cz) {
+    function setBlock(cx, cz, x, y, z, type) {
+        const key = `${cx},${cz}`;
+        let data = chunkData.get(key);
+        if (!data) {
+            data = generateChunkData(cx, cz);
+            chunkData.set(key, data);
+        }
+        const idx = y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x;
+        data[idx] = type;
+        rebuildChunkMesh(cx, cz);
+    }
+
+    // Generate chunk data (initial terrain)
+    function generateChunkData(cx, cz) {
         const blocks = new Array(CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE).fill(BLOCK_TYPES.AIR);
         for (let x = 0; x < CHUNK_SIZE; x++) {
             for (let z = 0; z < CHUNK_SIZE; z++) {
@@ -403,21 +409,25 @@
                     if (y === height) type = BLOCK_TYPES.GRASS;
                     else if (y > height-3) type = BLOCK_TYPES.DIRT;
                     else type = BLOCK_TYPES.STONE;
-                    blocks[y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x] = type;
+                    const idx = y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x;
+                    blocks[idx] = type;
                 }
             }
         }
         return blocks;
     }
 
-    function buildChunkMesh(blocks, cx, cz) {
+    // Build a mesh from chunk data
+    function buildChunkMesh(cx, cz) {
+        const blocks = chunkData.get(`${cx},${cz}`);
+        if (!blocks) return null;
+
         const geometry = new THREE.BufferGeometry();
         const positions = [];
         const normals = [];
         const indices = [];
-        let idx = 0;
 
-        function addCube(x, y, z, color) {
+        function addCube(x, y, z, type) {
             const v0 = new THREE.Vector3(x, y, z);
             const v1 = new THREE.Vector3(x+1, y, z);
             const v2 = new THREE.Vector3(x+1, y+1, z);
@@ -428,12 +438,9 @@
             const v7 = new THREE.Vector3(x, y+1, z+1);
 
             const faces = [
-                [v0, v1, v2, v3], // -z
-                [v4, v5, v6, v7], // +z
-                [v0, v1, v5, v4], // -y
-                [v3, v2, v6, v7], // +y
-                [v0, v3, v7, v4], // -x
-                [v1, v2, v6, v5]  // +x
+                [v0, v1, v2, v3], [v4, v5, v6, v7],
+                [v0, v1, v5, v4], [v3, v2, v6, v7],
+                [v0, v3, v7, v4], [v1, v2, v6, v5]
             ];
 
             faces.forEach(face => {
@@ -446,15 +453,16 @@
         for (let x = 0; x < CHUNK_SIZE; x++) {
             for (let z = 0; z < CHUNK_SIZE; z++) {
                 for (let y = 0; y < CHUNK_SIZE; y++) {
-                    const block = blocks[y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x];
-                    if (block === BLOCK_TYPES.AIR) continue;
-                    addCube(x, y, z, BLOCK_COLORS[block]);
+                    const idx = y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x;
+                    const type = blocks[idx];
+                    if (type === BLOCK_TYPES.AIR) continue;
+                    addCube(x, y, z, type);
                 }
             }
         }
 
-        geometry.setAttribute('position', new THREE.Float32Array(positions), 3));
-        geometry.setAttribute('normal', new THREE.Float32Array(normals), 3));
+        geometry.setAttribute('position', new THREE.Float32Array(positions), 3);
+        geometry.setAttribute('normal', new THREE.Float32Array(normals), 3);
         geometry.setIndex(indices);
         geometry.computeVertexNormals();
 
@@ -464,25 +472,43 @@
         return mesh;
     }
 
+    function rebuildChunkMesh(cx, cz) {
+        const key = `${cx},${cz}`;
+        const oldMesh = chunks.get(key);
+        if (oldMesh) scene.remove(oldMesh);
+        const newMesh = buildChunkMesh(cx, cz);
+        if (newMesh) {
+            scene.add(newMesh);
+            chunks.set(key, newMesh);
+        } else {
+            chunks.delete(key);
+        }
+    }
+
+    // Update chunks around player
     function updateChunks() {
         const cx = Math.floor(player.x / CHUNK_SIZE);
         const cz = Math.floor(player.z / CHUNK_SIZE);
         const toLoad = [];
         for (let dx = -RENDER_DISTANCE; dx <= RENDER_DISTANCE; dx++) {
             for (let dz = -RENDER_DISTANCE; dz <= RENDER_DISTANCE; dz++) {
-                const key = hashChunk(cx+dx, cz+dz);
-                if (!chunks.has(key)) {
+                const key = `${cx+dx},${cz+dz}`;
+                if (!chunks.has(key) && !chunkData.has(key)) {
                     toLoad.push([cx+dx, cz+dz]);
                 }
             }
         }
         for (let [cx, cz] of toLoad) {
-            const blocks = generateChunk(cx, cz);
-            const mesh = buildChunkMesh(blocks, cx, cz);
-            scene.add(mesh);
-            chunks.set(hashChunk(cx, cz), mesh);
+            const data = generateChunkData(cx, cz);
+            chunkData.set(`${cx},${cz}`, data);
+            rebuildChunkMesh(cx, cz);
         }
-        // Unload far chunks
+        for (let [key, data] of chunkData) {
+            if (!chunks.has(key)) {
+                const [cx, cz] = key.split(',').map(Number);
+                rebuildChunkMesh(cx, cz);
+            }
+        }
         for (let [key, mesh] of chunks) {
             const [cx, cz] = key.split(',').map(Number);
             if (Math.abs(cx - Math.floor(player.x/CHUNK_SIZE)) > RENDER_DISTANCE+1 ||
@@ -494,7 +520,7 @@
         document.getElementById('chunkCount').innerText = chunks.size;
     }
 
-    // --- Player movement (simplified) ---
+    // --- Player movement ---
     function handleInput(delta) {
         const speed = keys.shift ? 8 : 4;
         const move = { x: 0, z: 0 };
@@ -507,7 +533,6 @@
         player.x += move.x;
         player.z += move.z;
 
-        // Jump/gravity
         if (keys.space && player.onGround) {
             player.velocity.y = 5;
             player.onGround = false;
@@ -524,7 +549,7 @@
         document.getElementById('posZ').innerText = player.z.toFixed(1);
     }
 
-    // --- Raycaster for block breaking/placing ---
+    // --- Block interaction with PLT cost ---
     let raycaster = new THREE.Raycaster();
     function handleBlockInteraction() {
         if (!mouse.locked) return;
@@ -532,20 +557,59 @@
         raycaster.set(camera.position, direction);
         const intersects = raycaster.intersectObjects(Array.from(chunks.values()));
         if (intersects.length === 0) return;
-        const point = intersects[0].point;
-        const blockPos = {
-            x: Math.floor(point.x),
-            y: Math.floor(point.y),
-            z: Math.floor(point.z)
+        const hit = intersects[0];
+        const point = hit.point;
+        const normal = hit.face.normal;
+        let blockPos = {
+            x: Math.floor(point.x - normal.x * 0.5),
+            y: Math.floor(point.y - normal.y * 0.5),
+            z: Math.floor(point.z - normal.z * 0.5)
         };
-        // LMB: break
+        const cx = Math.floor(blockPos.x / CHUNK_SIZE);
+        const cz = Math.floor(blockPos.z / CHUNK_SIZE);
+        const lx = blockPos.x - cx * CHUNK_SIZE;
+        const ly = blockPos.y;
+        const lz = blockPos.z - cz * CHUNK_SIZE;
+        if (ly < 0 || ly >= CHUNK_SIZE) return;
+
+        // Break block
         if (window.breakRequest) {
-            console.log(`Break at ${blockPos.x},${blockPos.y},${blockPos.z}`);
+            const type = getBlock(cx, cz, lx, ly, lz);
+            if (type !== BLOCK_TYPES.AIR) {
+                if (type === BLOCK_TYPES.PROFIT_GOLD) plt.profit = Math.min(100, plt.profit + 2);
+                if (type === BLOCK_TYPES.LOVE_PINK) plt.love = Math.min(100, plt.love + 2);
+                if (type === BLOCK_TYPES.TAX_BLUE) plt.tax = Math.min(100, plt.tax + 2);
+                setBlock(cx, cz, lx, ly, lz, BLOCK_TYPES.AIR);
+            }
             window.breakRequest = false;
         }
-        // RMB: place
+        // Place block
         if (window.placeRequest) {
-            console.log(`Place ${selectedBlock} at ${blockPos.x},${blockPos.y},${blockPos.z}`);
+            let placePos = {
+                x: Math.floor(point.x + normal.x * 0.5),
+                y: Math.floor(point.y + normal.y * 0.5),
+                z: Math.floor(point.z + normal.z * 0.5)
+            };
+            const pcx = Math.floor(placePos.x / CHUNK_SIZE);
+            const pcz = Math.floor(placePos.z / CHUNK_SIZE);
+            const plx = placePos.x - pcx * CHUNK_SIZE;
+            const ply = placePos.y;
+            const plz = placePos.z - pcz * CHUNK_SIZE;
+            if (ply >= 0 && ply < CHUNK_SIZE && getBlock(pcx, pcz, plx, ply, plz) === BLOCK_TYPES.AIR) {
+                let cost = 0;
+                if (selectedBlock === BLOCK_TYPES.PROFIT_GOLD) cost = 5;
+                if (selectedBlock === BLOCK_TYPES.LOVE_PINK) cost = 5;
+                if (selectedBlock === BLOCK_TYPES.TAX_BLUE) cost = 5;
+                if (cost > 0) {
+                    if (selectedBlock === BLOCK_TYPES.PROFIT_GOLD && plt.profit < cost) return;
+                    if (selectedBlock === BLOCK_TYPES.LOVE_PINK && plt.love < cost) return;
+                    if (selectedBlock === BLOCK_TYPES.TAX_BLUE && plt.tax < cost) return;
+                    if (selectedBlock === BLOCK_TYPES.PROFIT_GOLD) plt.profit -= cost;
+                    if (selectedBlock === BLOCK_TYPES.LOVE_PINK) plt.love -= cost;
+                    if (selectedBlock === BLOCK_TYPES.TAX_BLUE) plt.tax -= cost;
+                }
+                setBlock(pcx, pcz, plx, ply, plz, selectedBlock);
+            }
             window.placeRequest = false;
         }
     }
@@ -561,7 +625,6 @@
         document.getElementById('realmValue').innerText = Math.floor(plt.realm);
         document.getElementById('realmFill').style.width = (plt.realm/100)*100 + '%';
 
-        // Soul list (simple)
         const soulListDiv = document.getElementById('soulList');
         if (souls.length === 0) soulListDiv.innerText = 'None';
         else soulListDiv.innerHTML = souls.map(s => `<div>${s.name} (${s.type})</div>`).join('');
@@ -597,7 +660,7 @@
         }
     }
 
-    // --- Soul forging (simulate) ---
+    // --- Soul forging ---
     function forgeSoul() {
         const profit = document.getElementById('profitSlider').value/100;
         const love = document.getElementById('loveSlider').value/100;
@@ -608,18 +671,17 @@
         const newSoul = { id: Date.now(), name, type, plt: { profit, love, tax }, energy: 100 };
         souls.push(newSoul);
         updateUI();
-        alert(`Soul "${name}" forged! It will now influence the world.`);
+        alert(`Soul "${name}" forged!`);
     }
 
     function syncSoulverse() {
-        // Attempt to load souls from localStorage (shared with main Soulverse)
         const saved = localStorage.getItem('soulforge_souls');
         if (saved) {
             souls = JSON.parse(saved);
             updateUI();
             alert(`Synced ${souls.length} souls from Soulverse.`);
         } else {
-            alert("No souls found in Soulverse storage. Forge some first in the main Soulverse.");
+            alert("No souls found in Soulverse storage.");
         }
     }
 
@@ -641,7 +703,6 @@
         updateChunks();
         updateFPS();
 
-        // Regenerate PLT slowly
         plt.profit = Math.min(100, plt.profit + 0.5 * delta);
         plt.love = Math.min(100, plt.love + 0.5 * delta);
         plt.tax = Math.min(100, plt.tax + 0.5 * delta);
@@ -670,27 +731,23 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.shadowMap.enabled = true;
 
-        // Post-processing
         const renderScene = new RenderPass(scene, camera);
         const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.6, 0.3, 0.85);
         composer = new EffectComposer(renderer);
         composer.addPass(renderScene);
         composer.addPass(bloomPass);
 
-        // Lighting
         const ambient = new THREE.AmbientLight(0x404040);
         scene.add(ambient);
         const dirLight = new THREE.DirectionalLight(0xffffff, 1);
         dirLight.position.set(1, 2, 1);
         dirLight.castShadow = true;
         scene.add(dirLight);
-
-        // Simple ground light
         const fillLight = new THREE.PointLight(0xccaa88, 0.5);
         fillLight.position.set(0, 5, 0);
         scene.add(fillLight);
 
-        // Event listeners
+        // Input events
         window.addEventListener('keydown', (e) => {
             switch(e.code) {
                 case 'KeyW': keys.w = 1; break;
@@ -716,39 +773,31 @@
                 case 'ShiftLeft': keys.shift = 0; break;
             }
         });
-        const canvas = document.getElementById('gameCanvas');
-        window.addEventListener('click', () => { if (!mouse.locked) canvas.requestPointerLock(); });
-        window.addEventListener('pointerlockchange', () => {
-            mouse.locked = document.pointerLockElement === canvas;
-            if (mouse.locked) {
-                document.body.addEventListener('mousemove', onMouseMove);
-            } else {
-                document.body.removeEventListener('mousemove', onMouseMove);
-            }
+        const canvasEl = document.getElementById('gameCanvas');
+        canvasEl.addEventListener('click', () => canvasEl.requestPointerLock());
+        document.addEventListener('pointerlockchange', () => {
+            mouse.locked = document.pointerLockElement === canvasEl;
         });
-        function onMouseMove(e) {
+        document.addEventListener('mousemove', (e) => {
             if (!mouse.locked) return;
             const dx = e.movementX * 0.002;
             const dy = e.movementY * 0.002;
             camera.rotation.order = 'YXZ';
             camera.rotation.y -= dx;
             camera.rotation.x -= dy;
-            if (camera.rotation.x > Math.PI/2) camera.rotation.x = Math.PI/2;
-            if (camera.rotation.x < -Math.PI/2) camera.rotation.x = -Math.PI/2;
-        }
+            camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
+        });
         window.addEventListener('mousedown', (e) => {
             if (e.button === 0) window.breakRequest = true;
             if (e.button === 2) { window.placeRequest = true; e.preventDefault(); }
         });
         window.addEventListener('contextmenu', (e) => e.preventDefault());
 
-        // UI
         document.getElementById('forgeBtn').addEventListener('click', forgeSoul);
         document.getElementById('syncSoulsBtn').addEventListener('click', syncSoulverse);
         document.getElementById('qualitySelect').addEventListener('change', (e) => setQuality(e.target.value));
         setQuality('medium');
 
-        // Slider displays
         function updateSliders() {
             document.getElementById('profitVal').innerText = document.getElementById('profitSlider').value + '%';
             document.getElementById('loveVal').innerText = document.getElementById('loveSlider').value + '%';
@@ -759,9 +808,7 @@
         document.getElementById('taxSlider').addEventListener('input', updateSliders);
         updateSliders();
 
-        // Initial chunks
         updateChunks();
-
         animate();
     }
 

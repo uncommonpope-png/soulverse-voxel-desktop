@@ -9,10 +9,11 @@ A polished voxel sandbox game with PLT (Profit, Love, Tax) resource system and s
 ## 🎮 Features
 
 - **Infinite Procedural Terrain** - Generated with mathematical functions
-- **PLT Resource System** - Profit 💰, Love ❤️, Tax ⚖️ bars
+- **PLT Resource System** - Profit 💰, Love ❤️, Tax ⚖️ bars with regeneration
 - **Soul Forging** - Create souls with different PLT distributions
 - **Quality Settings** - Low/Medium/High graphics options
-- **Block Building** - Place and break blocks (6 types)
+- **Full Block Editing** - Place and break blocks with PLT cost/gain
+- **Chunk Data Persistence** - World modifications stored in memory
 - **First-Person Controls** - WASD movement, mouse look
 - **Post-Processing** - Bloom effects for visual polish
 
@@ -57,20 +58,22 @@ After running `npm run dist`, installers will be in the `dist/` folder:
 | **SPACE** | Jump |
 | **SHIFT** | Sprint |
 | **MOUSE** | Look around |
-| **LMB** | Break block |
-| **RMB** | Place block |
+| **LMB** | Break block (gain PLT) |
+| **RMB** | Place block (cost PLT) |
 | **1-5** | Select block type |
 | **CLICK** | Lock pointer |
 
 ---
 
-## 🧱 Block Types
+## 🧱 Block Types & PLT
 
-1. **Grass** 🟩 - Surface blocks
-2. **Stone** ⬜ - Deep underground
-3. **Profit Gold** 💰 - Rare resource
-4. **Love Pink** ❤️ - Rare resource
-5. **Tax Blue** ⚖️ - Rare resource
+| Block | Icon | PLT Effect |
+|-------|------|------------|
+| Grass | 🟩 | Free to place |
+| Stone | ⬜ | Free to place |
+| Profit Gold | 💰 | Costs 5 Profit to place, +2 when broken |
+| Love Pink | ❤️ | Costs 5 Love to place, +2 when broken |
+| Tax Blue | ⚖️ | Costs 5 Tax to place, +2 when broken |
 
 ---
 
