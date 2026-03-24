@@ -261,6 +261,14 @@
         <h4>🌀 YOUR SOULS</h4>
         <div id="soulList">None</div>
     </div>
+
+    <div class="panel">
+        <h4>💾 WORLD SAVE</h4>
+        <button id="saveWorldBtn" class="btn btn-secondary">Save World</button>
+        <button id="loadWorldBtn" class="btn btn-secondary">Load World</button>
+        <button id="clearWorldBtn" class="btn btn-secondary" style="background:#5a2a2a;">Clear All</button>
+        <div style="margin-top:8px;font-size:10px;color:#888;" id="saveStatus"></div>
+    </div>
 </div>
 
 <div class="forge-panel">
@@ -685,6 +693,120 @@
         }
     }
 
+    // --- World Save/Load ---
+    function saveWorld() {
+        const saveData = {
+            version: 1,
+            timestamp: Date.now(),
+            chunkData: Array.from(chunkData.entries()),
+            player: { x: player.x, y: player.y, z: player.z },
+            plt: { ...plt },
+            souls: [...souls],
+            selectedBlock: selectedBlock
+        };
+        try {
+            localStorage.setItem('soulverseVoxelWorld', JSON.stringify(saveData));
+            document.getElementById('saveStatus').innerText = `Saved at ${new Date().toLocaleTimeString()}`;
+            document.getElementById('saveStatus').style.color = '#4a8';
+            alert(`World saved!\n${chunkData.size} chunks preserved.`);
+        } catch (e) {
+            document.getElementById('saveStatus').innerText = 'Save failed: ' + e.message;
+            document.getElementById('saveStatus').style.color = '#f44';
+            alert('Save failed: ' + e.message);
+        }
+    }
+
+    function loadWorld() {
+        const saved = localStorage.getItem('soulverseVoxelWorld');
+        if (!saved) {
+            alert('No saved world found.');
+            return;
+        }
+        try {
+            const data = JSON.parse(saved);
+            
+            // Clear current chunks
+            for (const [key, mesh] of chunks) {
+                scene.remove(mesh);
+            }
+            chunks.clear();
+            chunkData.clear();
+
+            // Restore chunk data
+            if (data.chunkData) {
+                for (const [key, blocks] of data.chunkData) {
+                    chunkData.set(key, blocks);
+                }
+                // Rebuild all chunk meshes
+                for (const [key] of chunkData) {
+                    const [cx, cz] = key.split(',').map(Number);
+                    rebuildChunkMesh(cx, cz);
+                }
+            }
+
+            // Restore player
+            if (data.player) {
+                player.x = data.player.x || 0;
+                player.y = data.player.y || 10;
+                player.z = data.player.z || 0;
+                player.velocity = { x: 0, y: 0, z: 0 };
+            }
+
+            // Restore PLT
+            if (data.plt) {
+                plt = { ...data.plt };
+            }
+
+            // Restore souls
+            if (data.souls) {
+                souls = [...data.souls];
+            }
+
+            // Restore selected block
+            if (data.selectedBlock !== undefined) {
+                selectedBlock = data.selectedBlock;
+            }
+
+            updateUI();
+            updateChunks();
+
+            document.getElementById('saveStatus').innerText = `Loaded from ${new Date(data.timestamp).toLocaleString()}`;
+            document.getElementById('saveStatus').style.color = '#4a8';
+            alert(`World loaded!\n${chunkData.size} chunks restored.`);
+        } catch (e) {
+            document.getElementById('saveStatus').innerText = 'Load failed: ' + e.message;
+            document.getElementById('saveStatus').style.color = '#f44';
+            alert('Load failed: ' + e.message);
+        }
+    }
+
+    function clearWorld() {
+        if (!confirm('Clear all built structures? This cannot be undone!')) return;
+        
+        // Clear chunks
+        for (const [key, mesh] of chunks) {
+            scene.remove(mesh);
+        }
+        chunks.clear();
+        chunkData.clear();
+
+        // Reset player
+        player.x = 0;
+        player.y = 10;
+        player.z = 0;
+        player.velocity = { x: 0, y: 0, z: 0 };
+
+        // Reset PLT
+        plt = { profit: 100, love: 100, tax: 100, realm: 100 };
+
+        updateUI();
+        updateChunks();
+
+        document.getElementById('saveStatus').innerText = 'World cleared';
+        document.getElementById('saveStatus').style.color = '#fa4';
+        alert('World cleared! Terrain will regenerate as you explore.');
+    }
+
     // --- Animation loop ---
     let lastFrame = performance.now();
     function animate() {
@@ -795,6 +917,9 @@
 
         document.getElementById('forgeBtn').addEventListener('click', forgeSoul);
         document.getElementById('syncSoulsBtn').addEventListener('click', syncSoulverse);
+        document.getElementById('saveWorldBtn').addEventListener('click', saveWorld);
+        document.getElementById('loadWorldBtn').addEventListener('click', loadWorld);
+        document.getElementById('clearWorldBtn').addEventListener('click', clearWorld);
         document.getElementById('qualitySelect').addEventListener('change', (e) => setQuality(e.target.value));
         setQuality('medium');
 
